@@ -33,6 +33,13 @@ def main():
         # PDFからテキスト抽出
         text = extract_text_from_pdf(uploaded_file)
 
+        # === ここから追加: 抽出したテキストを表示する ===
+        st.subheader("アップロードされたPDFの抽出テキスト")
+        # テキスト量が多い可能性があるため、text_areaを使うのが便利
+        st.text_area("PDFから抽出されたテキスト", text, height=200)
+        # === ここまで追加 ===
+
+        # 解析ボタン
         if st.button("2. OpenAI APIで解析し、ナレッジDBを更新"):
             with st.spinner("OpenAI APIで解析中..."):
                 metadata = call_openai_for_metadata(text)
@@ -49,7 +56,6 @@ def main():
                     db = updated_db
 
     st.subheader("3. ナレッジDBの内容を表示")
-    # JSONプレビュー
     if db["documents"]:
         st.write(f"現在のドキュメント数: {len(db['documents'])}")
         if st.checkbox("ナレッジDB(JSON)の中身を表示する"):
