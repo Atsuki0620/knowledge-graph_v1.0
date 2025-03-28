@@ -1,5 +1,5 @@
 streamlit
 pyvis
 networkx
-openai
+openai==0.28.0
 PyPDF2
