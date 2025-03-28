@@ -32,7 +32,7 @@ def extract_text_from_pdf(pdf_file) -> str:
 
 def call_openai_for_metadata(text: str):
     """
-    OpenAI APIを使用して、テキストからメタデータ・要約・キーワードなどを抽出する処理の例。
+    OpenAI APIを使用して、テキストからメタデータ・要約・キーワードなどを抽出する例。
     実際にはプロンプトを工夫して情報抽出を行う。
     """
     prompt = f"""
@@ -141,13 +141,13 @@ def visualize_knowledge_graph(db):
 def main():
     st.title("特許ナレッジDBアップデート & 可視化デモ")
 
-    # 0. ユーザーにOpenAI APIキーを入力してもらう
+    # 0. アプリ開始直後にOpenAI APIキーを入力させる
     openai_api_key = st.text_input("OpenAI API Key", type="password")
     if not openai_api_key:
         st.info("Please add your OpenAI API key to continue.", icon="🗝️")
         st.stop()
-
-    # OpenAI APIのキーを設定
+    
+    # OpenAI APIキーをセット
     openai.api_key = openai_api_key
 
     # 1. ナレッジDBを読込み
