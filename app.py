@@ -1,68 +1,57 @@
+import os
 import json
 import streamlit as st
 import openai
+from dotenv import load_dotenv # type: ignore
 
-from knowledge_utils import (
-    load_knowledge_db,
-    save_knowledge_db,
-    extract_text_from_pdf,
-    call_openai_for_metadata,
-    update_knowledge_db,
-    visualize_knowledge_graph
-)
+# .env ファイルから環境変数を読み込む
+load_dotenv()
+# OpenAI APIキーは環境変数から取得
+openai.api_key = os.getenv("OPENAI_API_KEY")
+if not openai.api_key:
+    st.error("OpenAI API Keyが設定されていません。.envファイルにOPENAI_API_KEYを定義してください。")
+    st.stop()
 
-def main():
-    st.title("特許ナレッジDBアップデート & 可視化デモ")
+from extraction_functions import call_openai_for_enhanced_metadata
+from db_utils import load_knowledge_db, save_knowledge_db, update_knowledge_db
+from graph_utils import visualize_knowledge_graph
 
-    # 0. アプリ開始直後にOpenAI APIキーを入力させる
-    openai_api_key = st.text_input("OpenAI API Key", type="password")
-    if not openai_api_key:
-        st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-        st.stop()
+st.title("特許ナレッジDBアップデート & 可視化デモ")
+
+# ナレッジDBの読み込み
+db = load_knowledge_db()
+
+# ファイルアップロード
+st.subheader("特許文書ファイルをアップロード")
+uploaded_file = st.file_uploader("PDFまたはテキストファイルを選択", type=["pdf", "txt"])
+
+if uploaded_file is not None:
+    if uploaded_file.type == "application/pdf":
+        try:
+            import pdfplumber
+            with pdfplumber.open(uploaded_file) as pdf:
+                text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+        except Exception as e:
+            st.error(f"PDF抽出エラー: {e}")
+            text = ""
+    else:
+        text = uploaded_file.read().decode("utf-8")
     
-    # OpenAI APIキーをセット
-    openai.api_key = openai_api_key
+    st.subheader("抽出されたテキスト（先頭部分）")
+    st.text_area("テキスト", text[:1000], height=200)
+    
+    if st.button("メタデータ抽出＆DB更新"):
+        with st.spinner("解析中..."):
+            metadata = call_openai_for_enhanced_metadata(text)
+            st.json(metadata)
+            updated_db = update_knowledge_db(db, metadata, text)
+            save_knowledge_db(updated_db)
+            st.success("ナレッジDB更新完了")
 
-    # 1. ナレッジDBを読込み
-    db = load_knowledge_db()
+st.subheader("ナレッジDB内容の表示")
+if db["documents"]:
+    st.text_area("ナレッジDB", json.dumps(db, ensure_ascii=False, indent=2), height=200)
 
-    # 2. ファイルアップロード
-    st.subheader("1. 特許文書ファイルをアップロード")
-    uploaded_file = st.file_uploader("PDFファイルを選択", type=["pdf"])
-
-    if uploaded_file is not None:
-        # PDFからテキスト抽出
-        text = extract_text_from_pdf(uploaded_file)
-
-        st.subheader("アップロードされたPDFの抽出テキスト")
-        st.text_area("PDFテキスト", text, height=200)
-
-        if st.button("2. OpenAI APIで解析し、ナレッジDBを更新"):
-            with st.spinner("OpenAI APIで解析中..."):
-                metadata = call_openai_for_metadata(text)
-                if metadata:
-                    st.success("メタデータ抽出成功!")
-                    st.json(metadata)
-
-                    # DB更新
-                    updated_db = update_knowledge_db(db, metadata, text)
-                    save_knowledge_db(updated_db)
-                    st.success("ナレッジDBを更新し、JSONファイルに保存しました。")
-
-                    # メモリ上のdbを更新
-                    db = updated_db
-
-    st.subheader("3. ナレッジDBの内容を表示")
-    if db["documents"]:
-        st.write(f"現在のドキュメント数: {len(db['documents'])}")
-        # チェックボックスONでJSONをテキストエリア表示
-        if st.checkbox("ナレッジDB(JSON)の中身を表示する"):
-            db_json = json.dumps(db, ensure_ascii=False, indent=2)
-            st.text_area("ナレッジDB", db_json, height=200)
-
-    st.subheader("4. グラフ構造の可視化")
-    if st.button("グラフを表示"):
-        visualize_knowledge_graph(db)
-
-if __name__ == "__main__":
-    main()
+st.subheader("グラフの可視化")
+if st.button("グラフ表示"):
+    visualize_knowledge_graph(db)

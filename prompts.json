@@ -1,0 +1,13 @@
+{
+    "chunk_size": 500,
+    "overlap": 100,
+    "model": "gpt-3.5-turbo",
+    "max_tokens_single": 3000,
+    "max_tokens_partial": 300,
+    "max_tokens_final": 3000,
+    "temperature": 0.2,
+    "single_chunk_prompt": "以下の特許明細書テキストから、以下の項目を抽出し、必ずJSON形式で返してください。抽出項目:\n1. 発明の名称 (title)\n2. 技術分野 (technical_field)\n3. 背景技術 (background_art)\n4. 先行技術文献 (prior_art_documents) - 配列\n5. 発明が解決しようとする課題 (problems_to_be_solved)\n6. 課題を解決するための手段 (means_for_solving)\n7. 発明の効果 (effects)\n8. 図面の簡単な説明 (brief_description_of_drawings)\n9. 発明を実施するための形態 (embodiments)\n10. 特許請求の範囲 (claims) - 配列\n11. その他の情報 (additional_info) - 出願日、公開日、登録日、発明者、出願人、代理人、優先権情報等\nさらに、テキスト中の重要用語を \"terminologies\" として、{ \"用語\": { \"definition\": \"...\", \"effect\": \"...\", \"role\": \"...\" } } の形式で抽出してください.\n出力は以下のJSON形式に厳密に従ってください。余計な文章は一切出力しないでください.\n\n```json\n{\n  \"title\": \"\",\n  \"technical_field\": \"\",\n  \"background_art\": \"\",\n  \"prior_art_documents\": [],\n  \"problems_to_be_solved\": \"\",\n  \"means_for_solving\": \"\",\n  \"effects\": \"\",\n  \"brief_description_of_drawings\": \"\",\n  \"embodiments\": \"\",\n  \"claims\": [],\n  \"additional_info\": {\n    \"filing_date\": \"\",\n    \"publication_date\": \"\",\n    \"registration_date\": \"\",\n    \"inventors\": [],\n    \"applicants\": [],\n    \"agents\": [],\n    \"priority_info\": \"\"\n  },\n  \"terminologies\": {}\n}\n```\nテキスト:\n{chunk_text}",
+    "final_chunk_prompt": "以下は、特許明細書の複数部分要約を統合したテキストです。これをもとに、以下の項目を抽出し、必ずJSON形式で返してください。抽出項目:\n1. 発明の名称 (title)\n2. 技術分野 (technical_field)\n3. 背景技術 (background_art)\n4. 先行技術文献 (prior_art_documents)\n5. 発明が解決しようとする課題 (problems_to_be_solved)\n6. 課題を解決するための手段 (means_for_solving)\n7. 発明の効果 (effects)\n8. 図面の簡単な説明 (brief_description_of_drawings)\n9. 発明を実施するための形態 (embodiments)\n10. 特許請求の範囲 (claims)\n11. その他の情報 (additional_info)\n12. 重要用語 (terminologies)\n出力形式は以下のJSON形式に従ってください.\n\n```json\n{\n  \"title\": \"\",\n  \"technical_field\": \"\",\n  \"background_art\": \"\",\n  \"prior_art_documents\": [],\n  \"problems_to_be_solved\": \"\",\n  \"means_for_solving\": \"\",\n  \"effects\": \"\",\n  \"brief_description_of_drawings\": \"\",\n  \"embodiments\": \"\",\n  \"claims\": [],\n  \"additional_info\": {\n    \"filing_date\": \"\",\n    \"publication_date\": \"\",\n    \"registration_date\": \"\",\n    \"inventors\": [],\n    \"applicants\": [],\n    \"agents\": [],\n    \"priority_info\": \"\"\n  },\n  \"terminologies\": {}\n}\n```\nテキスト要約一覧:\n{combined_text}",
+    "partial_summary_prompt": "以下の特許明細書の一部テキストから、主要な情報の概要（抽出項目の要点）を200文字以内で要約してください。\n\nテキスト:\n"
+  }
+  
