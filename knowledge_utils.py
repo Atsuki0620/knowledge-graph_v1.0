@@ -46,7 +46,7 @@ JSON形式で出力してください。
 
     try:
         # ★ 旧: openai.ChatCompletion.create() → 新: openai.chat_completions.create()
-        response = openai.chat_completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "あなたは優秀な特許アナリストです。"},
