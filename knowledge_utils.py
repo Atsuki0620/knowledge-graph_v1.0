@@ -30,41 +30,125 @@ def extract_text_from_pdf(pdf_file) -> str:
         text_list.append(page.extract_text() or "")
     return "\n".join(text_list)
 
+def split_text_with_overlap(text, chunk_size=3000, overlap=200):
+    """
+    textを chunk_size 文字ずつに分割し、各チャンクを overlap 文字だけ重複させる。
+
+    例:
+      chunk_size=3000, overlap=200 の場合、
+      1つ目チャンク: text[0 : 3000]
+      2つ目チャンク: text[2800 : 5800]
+      3つ目チャンク: text[5600 : 8600]
+      ...
+    """
+    chunks = []
+    start = 0
+    n = len(text)
+
+    while start < n:
+        end = start + chunk_size
+        chunk = text[start:end]
+        chunks.append(chunk)
+        
+        # 次チャンクは (chunk_size - overlap) 進めた位置から
+        start += (chunk_size - overlap)
+
+        if start >= n:
+            break
+
+    return chunks
+
 def call_openai_for_metadata(text: str):
     """
-    OpenAI (1.0.0 以上)を使用して、テキストからメタデータ・要約・キーワードなどを抽出する例。
-    実際にはプロンプトを工夫して情報抽出を行う。
+    長文テキストを複数チャンクに分割し、それぞれを要約→最終的に統合したメタデータ(JSON)を返す。
+    ここではシンプルに (1)部分要約の文字列のリスト → (2)最終JSON の流れを実装。
     """
-    prompt = f"""
-あなたは特許文書の要約と主要なキーワード、関連エンティティを抽出するアシスタントです。
-以下の特許文書テキストから、(1) 要約、(2) 主要キーワード、(3) 重要な関係性（発明者、対象分野など）を簡潔に抽出し、
-JSON形式で出力してください。
+
+    # 1) チャンク分割（3000文字単位、200文字オーバーラップ）
+    chunks = split_text_with_overlap(text, chunk_size=3000, overlap=200)
+
+    # もしテキストが短くてチャンクが1つだけなら、そのまま1回の呼び出しでOK
+    if len(chunks) == 1:
+        return _call_openai_single_chunk(chunks[0])
+    else:
+        # 2) 各チャンクを部分要約 → partial_summaries に格納
+        partial_summaries = []
+        for i, chunk in enumerate(chunks):
+            with st.spinner(f"チャンク {i+1}/{len(chunks)} を要約中..."):
+                summary_text = _call_openai_partial_summary(chunk)
+                partial_summaries.append(summary_text)
+
+        # 3) 部分要約を結合し、最終的なメタデータ(JSON)を生成
+        #    ここでは「部分要約をつなげて再要約」→ 「再要約した結果をJSON化」 という二段階
+        combined_text = "\n".join(partial_summaries)
+
+        final_metadata = _call_openai_final_metadata(combined_text)
+        return final_metadata
+
+
+def _call_openai_partial_summary(chunk_text: str):
+    """
+    チャンクごとに「短い要約テキスト」を生成する。
+    JSONでなく、単なる要約文を返す想定。
+    """
+    prompt_for_chunk = f"""
+以下のテキストを簡潔に200文字以内で要約してください。
 
 テキスト:
-{text}
+{chunk_text}
 """
-
     try:
-        # ★ 旧: openai.ChatCompletion.create() → 新: openai.chat_completions.create()
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "あなたは優秀な特許アナリストです。"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "あなたは優秀な要約アシスタントです。"},
+                {"role": "user", "content": prompt_for_chunk}
             ],
-            temperature=0.2,
-            max_tokens=1000
+            max_tokens=500,
+            temperature=0.2
         )
-        # ★ 旧: response.choices[0].message["content"] → 新: response.choices[0].message.content
-        result_text = response.choices[0].message.content.strip()
+        summary = response.choices[0].message["content"].strip()
+        return summary
+    except Exception as e:
+        st.error(f"OpenAI APIエラー（部分要約）: {e}")
+        return ""
 
-        # OpenAIからの出力をJSONパースする想定
-        # 例: {"summary": "...", "keywords": [...], "entities": {...}}
-        metadata = json.loads(result_text)  
+def _call_openai_final_metadata(combined_text: str):
+    """
+    部分要約を全部つなげた combined_text から、
+    (1) 要約 (2) キーワード (3) 関係エンティティ
+    を含む JSON を生成する。
+    """
+    prompt_for_final = f"""
+以下は複数チャンクを部分要約したテキストをつなげたものです。
+これを参考に、
+(1) 全体の要約
+(2) 主なキーワード (箇条書き)
+(3) 関係エンティティ (発明者や対象分野など)
+を JSON 形式で出力してください。
+
+combined_text:
+{combined_text}
+"""
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "あなたは優秀な特許文書のアナリストです。"},
+                {"role": "user", "content": prompt_for_final}
+            ],
+            max_tokens=1000,
+            temperature=0.2
+        )
+        result_text = response.choices[0].message["content"].strip()
+        # 期待する形式: {"summary": "...", "keywords": [...], "entities": {...}}
+        metadata = json.loads(result_text)
         return metadata
     except Exception as e:
-        st.error(f"OpenAI APIエラー: {e}")
-        return None
+        st.error(f"OpenAI APIエラー（最終メタデータ）: {e}")
+        # 失敗時は最低限の構造だけ返す
+        return {"summary": "", "keywords": [], "entities": {}}
+
 
 def update_knowledge_db(db, metadata, original_text):
     """
