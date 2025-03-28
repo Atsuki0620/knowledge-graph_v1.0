@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import PyPDF2
 import openai
 import streamlit as st
@@ -61,35 +62,82 @@ def split_text_with_overlap(text, chunk_size=3000, overlap=200):
 def call_openai_for_metadata(text: str):
     """
     長文テキストを複数チャンクに分割し、それぞれを要約→最終的に統合したメタデータ(JSON)を返す。
-    ここではシンプルに (1)部分要約の文字列のリスト → (2)最終JSON の流れを実装。
+    (前回のコードに対して、厳格なJSON生成・デバッグ表示・フォールバック処理を追加)
     """
 
     # 1) チャンク分割（3000文字単位、200文字オーバーラップ）
     chunks = split_text_with_overlap(text, chunk_size=3000, overlap=200)
 
-    # もしテキストが短くてチャンクが1つだけなら、そのまま1回の呼び出しでOK
+    # テキストが短くチャンクが1つだけなら1回のリクエストで完了
     if len(chunks) == 1:
         return _call_openai_single_chunk(chunks[0])
     else:
-        # 2) 各チャンクを部分要約 → partial_summaries に格納
+        # 複数チャンク: (1)部分要約 → (2)再要約(JSON化)
         partial_summaries = []
         for i, chunk in enumerate(chunks):
             with st.spinner(f"チャンク {i+1}/{len(chunks)} を要約中..."):
                 summary_text = _call_openai_partial_summary(chunk)
                 partial_summaries.append(summary_text)
 
-        # 3) 部分要約を結合し、最終的なメタデータ(JSON)を生成
-        #    ここでは「部分要約をつなげて再要約」→ 「再要約した結果をJSON化」 という二段階
         combined_text = "\n".join(partial_summaries)
-
         final_metadata = _call_openai_final_metadata(combined_text)
         return final_metadata
 
+def _call_openai_single_chunk(chunk_text: str):
+    """
+    テキストが3000文字以下のとき、1回で最終的なJSONメタデータを出す。
+    (厳密にJSON出力を促し、パース時に失敗したらフォールバック)
+    """
+    # Markdownコードブロック + JSONフォーマット指示
+    prompt_for_final = f"""
+以下の特許文書テキストを読み、
+(1) 全体の要約
+(2) 主なキーワード (箇条書き)
+(3) 関係エンティティ (発明者や対象分野など)
+を **JSON形式のみ**で返してください。
+
+出力形式は以下に必ず従ってください。それ以外の文章や注釈は一切書かないでください:
+
+\`\`\`json
+{{
+  "summary": "<string>",
+  "keywords": ["<string>", ...],
+  "entities": {{"<entity_key>": "<entity_value>", ...}}
+}}
+\`\`\`
+
+テキスト:
+{chunk_text}
+"""
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "あなたは優秀な特許アナリストです。"},
+                {"role": "user", "content": prompt_for_final}
+            ],
+            # max_tokensを十分に確保
+            max_tokens=2000,
+            temperature=0.2
+        )
+        result_text = response.choices[0].message["content"].strip()
+
+        # デバッグ表示 (モデルからの生文字列を確認)
+        st.write("【DEBUG】Single Chunk 生出力:")
+        st.write(result_text)
+
+        # JSONパースを試みる
+        metadata = _extract_json_from_string(result_text)
+        return metadata
+
+    except Exception as e:
+        st.error(f"OpenAI APIエラー（single chunk）: {e}")
+        return {"summary": "", "keywords": [], "entities": {}}
 
 def _call_openai_partial_summary(chunk_text: str):
     """
-    チャンクごとに「短い要約テキスト」を生成する。
-    JSONでなく、単なる要約文を返す想定。
+    チャンクごとに「短い要約テキスト」を生成する（JSONではなく文字列）。
     """
     prompt_for_chunk = f"""
 以下のテキストを簡潔に200文字以内で要約してください。
@@ -104,7 +152,7 @@ def _call_openai_partial_summary(chunk_text: str):
                 {"role": "system", "content": "あなたは優秀な要約アシスタントです。"},
                 {"role": "user", "content": prompt_for_chunk}
             ],
-            max_tokens=500,
+            max_tokens=1000,
             temperature=0.2
         )
         summary = response.choices[0].message["content"].strip()
@@ -115,38 +163,77 @@ def _call_openai_partial_summary(chunk_text: str):
 
 def _call_openai_final_metadata(combined_text: str):
     """
-    部分要約を全部つなげた combined_text から、
-    (1) 要約 (2) キーワード (3) 関係エンティティ
-    を含む JSON を生成する。
+    部分要約を結合した combined_text から、最終的なメタデータ(JSON)を生成。
+    厳格なJSON出力を促し、失敗時はフォールバック処理。
     """
     prompt_for_final = f"""
-以下は複数チャンクを部分要約したテキストをつなげたものです。
-これを参考に、
+以下は複数チャンクを部分要約したテキストを結合したものです。
+これをもとに、
 (1) 全体の要約
 (2) 主なキーワード (箇条書き)
-(3) 関係エンティティ (発明者や対象分野など)
-を JSON 形式で出力してください。
+(3) 関係エンティティ (発明者、対象分野など)
+を **JSON形式のみ**で返してください。絶対に他の文章は出力しないでください。
 
-combined_text:
+出力形式:
+\`\`\`json
+{{
+  "summary": "<string>",
+  "keywords": ["<string>", ...],
+  "entities": {{"<entity_key>": "<entity_value>", ...}}
+}}
+\`\`\`
+
+テキスト要約一覧:
 {combined_text}
 """
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "あなたは優秀な特許文書のアナリストです。"},
+                {"role": "system", "content": "あなたは優秀な特許アナリストです。"},
                 {"role": "user", "content": prompt_for_final}
             ],
-            max_tokens=1000,
+            # max_tokensを十分に確保
+            max_tokens=2000,
             temperature=0.2
         )
         result_text = response.choices[0].message["content"].strip()
-        # 期待する形式: {"summary": "...", "keywords": [...], "entities": {...}}
-        metadata = json.loads(result_text)
+
+        # デバッグ表示 (モデルからの生文字列を確認)
+        st.write("【DEBUG】Final Metadata 生出力:")
+        st.write(result_text)
+
+        # JSONパースを試みる
+        metadata = _extract_json_from_string(result_text)
         return metadata
+
     except Exception as e:
         st.error(f"OpenAI APIエラー（最終メタデータ）: {e}")
         # 失敗時は最低限の構造だけ返す
+        return {"summary": "", "keywords": [], "entities": {}}
+
+def _extract_json_from_string(text: str):
+    """
+    モデル出力から、Markdownの```json ...```を切り出してパース。
+    フォールバックとして、直接json.loads()も試す。
+    """
+    # 1) 正規表現で ```json ... ``` 形式を探す
+    pattern = r"```json\s*(.*?)\s*```"
+    match = re.search(pattern, text, flags=re.DOTALL)
+    if match:
+        code_block = match.group(1).strip()
+        try:
+            return json.loads(code_block)
+        except Exception:
+            pass  # 失敗したら次のフォールバックへ
+
+    # 2) 直接text全体をjson.loadsしてみる
+    #    (ユーザーが余計な文章を出さずにそのまま {} を返す場合など)
+    try:
+        return json.loads(text)
+    except Exception as e:
+        st.error(f"JSONパース失敗: {e}")
+        # 最終的に失敗したら最低限の構造だけ返す
         return {"summary": "", "keywords": [], "entities": {}}
 
 
