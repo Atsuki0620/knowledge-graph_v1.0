@@ -1,13 +1,13 @@
 import os
 import json
 import re
-import PyPDF2
+# PyPDF2の代わりにpdfplumberを使う
+import pdfplumber  
 import openai
 import streamlit as st
 import networkx as nx
 from pyvis.network import Network
 
-# JSONファイル名（ナレッジDBの保存先）
 KNOWLEDGE_DB_FILE = "knowledge_db.json"
 
 def load_knowledge_db():
@@ -24,12 +24,23 @@ def save_knowledge_db(db):
         json.dump(db, f, ensure_ascii=False, indent=2)
 
 def extract_text_from_pdf(pdf_file) -> str:
-    """PDFファイルからテキストを抽出するサンプル関数"""
-    reader = PyPDF2.PdfReader(pdf_file)
+    """
+    pdfplumberを使ってPDFファイルからテキストを抽出する関数。
+    文字化けが多い場合はPyPDF2より安定して読めることが多い。
+    """
     text_list = []
-    for page in reader.pages:
-        text_list.append(page.extract_text() or "")
+    # pdf_file は Streamlitのfile_uploader等のFile-likeオブジェクト
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            # extract_text() でそのページの文字をすべて取得
+            page_text = page.extract_text()
+            if page_text:
+                text_list.append(page_text)
     return "\n".join(text_list)
+
+# 以下、以降の関数は従来のまま据え置き
+# call_openai_for_metadata, update_knowledge_db, visualize_knowledge_graph など
+# ...
 
 def split_text_with_overlap(text, chunk_size=3000, overlap=200):
     """
