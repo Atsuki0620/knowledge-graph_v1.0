@@ -2,21 +2,18 @@ import os
 import json
 import streamlit as st
 import openai
-from dotenv import load_dotenv # type: ignore
-
-# .env ファイルから環境変数を読み込む
-load_dotenv()
-# OpenAI APIキーは環境変数から取得
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if not openai.api_key:
-    st.error("OpenAI API Keyが設定されていません。.envファイルにOPENAI_API_KEYを定義してください。")
-    st.stop()
 
 from extraction_functions import call_openai_for_enhanced_metadata
 from db_utils import load_knowledge_db, save_knowledge_db, update_knowledge_db
 from graph_utils import visualize_knowledge_graph
 
 st.title("特許ナレッジDBアップデート & 可視化デモ")
+
+# ユーザーにAPIキーを入力させる
+openai_api_key = st.text_input("OpenAI API Key", type="password")
+if not openai_api_key:
+    st.stop()
+openai.api_key = openai_api_key
 
 # ナレッジDBの読み込み
 db = load_knowledge_db()
