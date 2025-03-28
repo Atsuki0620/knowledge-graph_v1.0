@@ -3,3 +3,4 @@ pyvis
 networkx
 openai==0.28.0
 PyPDF2
+pdfplumber
