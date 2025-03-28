@@ -32,7 +32,7 @@ def extract_text_from_pdf(pdf_file) -> str:
 
 def call_openai_for_metadata(text: str):
     """
-    OpenAI APIを使用して、テキストからメタデータ・要約・キーワードなどを抽出する例。
+    OpenAI (1.0.0 以上)を使用して、テキストからメタデータ・要約・キーワードなどを抽出する例。
     実際にはプロンプトを工夫して情報抽出を行う。
     """
     prompt = f"""
@@ -45,8 +45,9 @@ JSON形式で出力してください。
 """
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # 必要に応じて gpt-4 に変更
+        # ★ 旧: openai.ChatCompletion.create() → 新: openai.chat_completions.create()
+        response = openai.chat_completions.create(
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "あなたは優秀な特許アナリストです。"},
                 {"role": "user", "content": prompt}
@@ -54,7 +55,9 @@ JSON形式で出力してください。
             temperature=0.2,
             max_tokens=1000
         )
-        result_text = response.choices[0].message["content"].strip()
+        # ★ 旧: response.choices[0].message["content"] → 新: response.choices[0].message.content
+        result_text = response.choices[0].message.content.strip()
+
         # OpenAIからの出力をJSONパースする想定
         # 例: {"summary": "...", "keywords": [...], "entities": {...}}
         metadata = json.loads(result_text)  
